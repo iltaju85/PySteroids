@@ -5,7 +5,7 @@
 
 # TODO:
 # 1. start ship pointing up
-# 2. nukes?
+# 2. nuke
 # 3. flash screen when explosion occurs - fix draw order
 
 import pygame
