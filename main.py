@@ -5,8 +5,9 @@
 
 # TODO:
 # 1. start ship pointing up
-# 2. nuke
-# 3. flash screen when explosion occurs - fix draw order
+# 2. nuke - clear screen of enemies
+# 3. waves
+# 4.
 
 import pygame
 import pygame.gfxdraw
@@ -14,7 +15,7 @@ from random import randint, uniform, choice
 
 
 class Ship(pygame.sprite.Sprite):
-    """ Player ship class. Containts a lot of extra game logic """
+    """ Player ship class """
 
     def __init__(self, group):
         super().__init__(group)
@@ -32,7 +33,7 @@ class Ship(pygame.sprite.Sprite):
         self.angle = 0
         self.pos = pygame.math.Vector2(self.rect.center)
         self.direction = pygame.math.Vector2(0, 0)
-        self.speed = 500
+        self.speed = 700
         self.force = pygame.math.Vector2(self.direction)
 
         self.offset = pygame.math.Vector2()
@@ -77,7 +78,7 @@ class Ship(pygame.sprite.Sprite):
                 self.force.scale_to_length(0.99)
 
         if keys[pygame.K_RETURN]:
-            if not self.started:
+            if not self.started or self.destroyed:
                 self.spawn_self()
         if self.direction.length() > 0:
             self.direction.scale_to_length(self.length)
@@ -88,6 +89,8 @@ class Ship(pygame.sprite.Sprite):
 
     def spawn_self(self):
         """ Resetting the ship """
+        meteor_group.empty()
+        laser_group.empty()
         self.destroyed = False
         self.started = True
         self.win = False
@@ -124,7 +127,6 @@ class Ship(pygame.sprite.Sprite):
                 explosion_group.append(explosion)
             explosion = Explosion(pygame.time.get_ticks(), self.rect.center)
             explosion_group.append(explosion)
-            self.started = False
             self.destroyed = True
 
     def rotate(self):
@@ -217,7 +219,7 @@ class Meteor(pygame.sprite.Sprite):
         else:
             factor = uniform(0.9, 1.2)
             rescaled_size = factor * size[0], factor * size[0]
-        self.rescaled_image = pygame.transform.scale(surf, (rescaled_size))
+        self.rescaled_image = pygame.transform.scale(surf, rescaled_size)
         self.image = self.rescaled_image.convert_alpha()
         self.image.set_colorkey((0, 0, 0))
         self.mask = pygame.mask.from_surface(self.image)
@@ -252,20 +254,17 @@ class Meteor(pygame.sprite.Sprite):
 
     @staticmethod
     def spawn():
-        """ Spawn waves make gameplay a little more interesting. Not implemented properly. Just a concept"""
-        ship.win = False
+        """ TODO: Spawn waves """
         Meteor(meteor_group)
-        if 20000 > ship.time_now > 15000:
-            pass
-        if 46000 > ship.time_now > 40000:
-            Meteor(meteor_group)
-        if 70000 > ship.time_now > 65000:
-            Meteor(meteor_group)
-        if 105000 > ship.time_now > 100000:
-            Meteor(meteor_group)
-            Meteor(meteor_group)
-        # if ship.time_now > 109000:
-        #     ship.win = True
+        # if 20000 > ship.time_now > 15000:
+        #     pass
+        # if 46000 > ship.time_now > 40000:
+        #     Meteor(meteor_group)
+        # if 70000 > ship.time_now > 65000:
+        #     Meteor(meteor_group)
+        # if 105000 > ship.time_now > 100000:
+        #     Meteor(meteor_group)
+        #     Meteor(meteor_group)
 
     def update(self):
         self.rotate()
@@ -283,35 +282,35 @@ class Meteor(pygame.sprite.Sprite):
             self.pos.x = 0 - self.rect.width
 
 
-class Score:
+class Text:
     def __init__(self):
         self.font = pygame.font.SysFont('verdana', 50, True)
 
     def draw(self):
         if not ship.started:
+            self.font = pygame.font.SysFont('verdana', 100, True)
             text = f'PYSTEROIDS'
             text_surf = self.font.render(text, False, 'chartreuse')
             text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 150))
             screen.blit(text_surf, text_rect)
+            self.font = pygame.font.SysFont('verdana', 50, True)
             text = f'press ENTER to play...'
             text_surf = self.font.render(text, True, 'chartreuse')
             text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
             screen.blit(text_surf, text_rect)
-            meteor_group.empty()
         if debug:
             text = f'time: {ship.time_now} ships: {len(ship_group)} meteors: {len(meteor_group)} lasers: {len(laser_group)}'
             text_surf = self.font.render(text, True, 'chartreuse')
             text_rect = text_surf.get_rect(topleft=(0, 0))
             screen.blit(text_surf, text_rect)
-        if not ship.win and ship.started and ship.destroyed:
-            text = f'GAME OVER!'
-            text_surf = self.font.render(text, True, 'chartreuse')
-            text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+        if ship.started and ship.destroyed:
+            self.font = pygame.font.SysFont('verdana', 100, True)
+            text = 'GAME OVER'
+            text_surf = self.font.render(text, False, 'chartreuse')
+            text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 150))
             screen.blit(text_surf, text_rect)
-            meteor_group.empty()
-
-        elif ship.win:
-            text = f'YOU WIN! YOUR SCORE {ship.score}'
+            self.font = pygame.font.SysFont('verdana', 50, True)
+            text = f'press ENTER to play...'
             text_surf = self.font.render(text, True, 'chartreuse')
             text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
             screen.blit(text_surf, text_rect)
@@ -322,12 +321,12 @@ class Explosion:
         self.pos = pos
         self.time = time
         self.particles = []
-        screen.fill(shimmering_color())
+        self.explosion = True
 
     def update(self):
         self.particles.clear()
         for _ in range(2):
-            self.particles.append((randint(-60, 60), randint(-60, 60), randint(20,80))) # x,y, size
+            self.particles.append((randint(-60, 60), randint(-60, 60), randint(20,80)))     # x,y, size
         if pygame.time.get_ticks() - self.time < 200:
             for particle in self.particles:
                 # rect = pygame.rect.Rect((self.pos[0] + particle[0], self.pos[1] + particle[1]), (80, 80))
@@ -335,7 +334,6 @@ class Explosion:
 
                 pygame.gfxdraw.filled_circle(screen, round(self.pos[0] + particle[0]), round(self.pos[1] + particle[1]),
                                              particle[2], shimmering_color())
-
 
         else:
             explosion_group.remove(self)
@@ -375,7 +373,7 @@ explosion_group = []
 
 # initialising sprite groups
 ship = Ship(ship_group)
-score = Score()
+text = Text()
 
 # meteor spawn timer
 meteor_timer = pygame.event.custom_type()
@@ -394,12 +392,13 @@ while True:
     screen.fill((0, 0, 0))
     pygame.display.set_caption(f'PySteroids')
     dt = clock.tick(60) / 1000
+    ship.score += 1
     # events
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             exit()
         if event.type == meteor_timer:  # Meteor spawns
-            if not ship.win and ship.started:
+            if ship.started:
                 Meteor.spawn()
             else:
                 meteor_group.empty()
@@ -418,16 +417,19 @@ while True:
             screen.blit(rect, sprite.rect)
 
     # sprite group draws
-    if ship.started and not ship.win:
+    if ship.started and not ship.destroyed:
         draw_stars()
         laser_group.draw(screen)
         ship_group.draw(screen)
         meteor_group.draw(screen)
-    score.draw()
+    text.draw()
 
     # explosions
     for explosion in explosion_group:
         explosion.update()
+        if explosion.explosion:
+            screen.fill(shimmering_color())
+            explosion.explosion = False
 
     # final draw
     pygame.display.update()
