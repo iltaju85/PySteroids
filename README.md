@@ -1,2 +1,2 @@
 # PySteroids
-Small Asteroids-like game created with python and PyGame-module. All graphics are generated within code. 
+Small Asteroids-like game created with python and PyGame-module. Everything, including graphics are in main.py.
