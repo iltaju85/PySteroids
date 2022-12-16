@@ -1,9 +1,12 @@
 #############################################
-#   ASTEROID-tyylinen pygame-peli v.0.1     #
+# ASTEROID-style small pygame project v.0.2 #
 #   by: Ilkka Jussila                       #
 #############################################
 
 # TODO:
+# 1. start ship pointing up
+# 2. nukes?
+# 3. flash screen when explosion occurs - fix draw order
 
 import pygame
 import pygame.gfxdraw
@@ -28,7 +31,7 @@ class Ship(pygame.sprite.Sprite):
         self.rotation_speed = 250
         self.angle = 0
         self.pos = pygame.math.Vector2(self.rect.center)
-        self.direction = pygame.math.Vector2(0.001, 0)
+        self.direction = pygame.math.Vector2(0, 0)
         self.speed = 500
         self.force = pygame.math.Vector2(self.direction)
 
@@ -76,7 +79,8 @@ class Ship(pygame.sprite.Sprite):
         if keys[pygame.K_RETURN]:
             if not self.started:
                 self.spawn_self()
-        self.direction.scale_to_length(self.length)
+        if self.direction.length() > 0:
+            self.direction.scale_to_length(self.length)
         self.pos += self.force * self.speed * dt
         self.offset += self.force * self.speed // 10 * dt
 
@@ -162,10 +166,10 @@ class Laser(pygame.sprite.Sprite):
         if collided:
             for sprite in collided:
                 if sprite.image.get_size()[0] > 115:
-                    Meteor(meteor_group, pos=sprite.rect.center, size=sprite.image.get_size())
-                    Meteor(meteor_group, pos=sprite.rect.center, size=sprite.image.get_size())
+                    Meteor(meteor_group, pos=sprite.rect.center, size=(sprite.image.get_size()[0]//2, sprite.image.get_size()[1]//2))
+                    Meteor(meteor_group, pos=sprite.rect.center, size=(sprite.image.get_size()[0]//2, sprite.image.get_size()[1]//2))
                 elif sprite.image.get_size()[0] > 80:
-                    Meteor(meteor_group, pos=sprite.rect.center, size=sprite.image.get_size())
+                    Meteor(meteor_group, pos=sprite.rect.center, size=(sprite.image.get_size()[0]//2, sprite.image.get_size()[1]//2))
             ship.score += self.image.get_width()
             explosion = Explosion(pygame.time.get_ticks(), self.rect.center)
             explosion_group.append(explosion)
@@ -212,7 +216,7 @@ class Meteor(pygame.sprite.Sprite):
             rescaled_size = factor * surf.get_size()[0], factor * surf.get_size()[1]
         else:
             factor = uniform(0.9, 1.2)
-            rescaled_size = factor * size[0] // 2, factor * size[0] // 2
+            rescaled_size = factor * size[0], factor * size[0]
         self.rescaled_image = pygame.transform.scale(surf, (rescaled_size))
         self.image = self.rescaled_image.convert_alpha()
         self.image.set_colorkey((0, 0, 0))
@@ -318,30 +322,39 @@ class Explosion:
         self.pos = pos
         self.time = time
         self.particles = []
+        screen.fill(shimmering_color())
 
     def update(self):
         self.particles.clear()
         for _ in range(2):
-            self.particles.append((randint(-40, 40), randint(-40, 40)))
+            self.particles.append((randint(-60, 60), randint(-60, 60), randint(20,80))) # x,y, size
         if pygame.time.get_ticks() - self.time < 200:
             for particle in self.particles:
-                rect = pygame.rect.Rect((self.pos[0] + particle[0], self.pos[1] + particle[1]), (80, 80))
-                pygame.draw.ellipse(screen, shimmering_color(), rect)
+                # rect = pygame.rect.Rect((self.pos[0] + particle[0], self.pos[1] + particle[1]), (80, 80))
+                # pygame.draw.ellipse(screen, shimmering_color(), rect)
+
+                pygame.gfxdraw.filled_circle(screen, round(self.pos[0] + particle[0]), round(self.pos[1] + particle[1]),
+                                             particle[2], shimmering_color())
+
+
         else:
             explosion_group.remove(self)
             del self
 
 
-def shimmering_color():
-    color = choice(['chartreuse', 'chartreuse2', 'chartreuse3', 'chartreuse4'])
+def shimmering_color(stars=False):
+    if not stars:
+        color = choice([(127, 255, 0), (118, 238, 0), (102, 205, 0), (69, 139, 0)])
+    else:
+        color = choice([(102, 205, 0), (69, 139, 0)])
     return color
 
 
 def draw_stars():
     for star in stars:
-        size = randint(1, 3)
-        rect = pygame.rect.Rect((star[0] - round(ship.offset[0]), star[1] - round(ship.offset[1])), (size, size))
-        pygame.draw.ellipse(screen, shimmering_color(), rect)
+        # size = randint(1, 3)
+        size = 1
+        pygame.gfxdraw.filled_circle(screen,round(star[0] - ship.offset.x), round(star[1] - ship.offset.y),size, shimmering_color(stars=True))
 
 
 # inits and general setup
