@@ -1,16 +1,17 @@
 #############################################
-# ASTEROID-style small pygame project v.0.2 #
+# ASTEROID-style small pygame project v.0.3 #
 #   by: Ilkka Jussila                       #
 #############################################
 
 # TODO:
-# 1. start ship pointing up
-# 2. nuke - clear screen of enemies
-# 3. waves
-# 4.
+# 1. make score text temparily bigger when you hit enemy
+# 2. meteor spawn waves
+# 3. UFO
+# 4. Highscore
 
 import pygame
 import pygame.gfxdraw
+from math import pi
 from random import randint, uniform, choice
 
 
@@ -28,13 +29,21 @@ class Ship(pygame.sprite.Sprite):
         self.rect = self.image.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
         self.mask = pygame.mask.from_surface(self.image)
 
+        self.nuke_surf = pygame.surface.Surface((50,50))
+        self.nuke_rect = self.nuke_surf.get_rect(center=(20, SCREEN_HEIGHT - 20))
+        pygame.draw.arc(self.nuke_surf, (127, 255, 0), [0,0,50,50], pi*2/6, pi*2/6*2, 18)
+        pygame.draw.arc(self.nuke_surf, (127, 255, 0), [0, 0, 50, 50], pi*2/6*3, pi*2/6*4, 18)
+        pygame.draw.arc(self.nuke_surf, (127, 255, 0), [0, 0, 50, 50], pi*2/6*5, pi*2/6*6, 18)
+        pygame.draw.circle(self.nuke_surf,(127, 255, 0), (25,25), 3, 0)
+        self.nuke_surf.set_colorkey((0,0,0))
+
         self.length = 1
         self.rotation_speed = 250
         self.angle = 0
         self.pos = pygame.math.Vector2(self.rect.center)
-        self.direction = pygame.math.Vector2(0, 0)
+        self.direction = pygame.math.Vector2()
         self.speed = 700
-        self.force = pygame.math.Vector2(self.direction)
+        self.force = pygame.math.Vector2(0,0)
 
         self.offset = pygame.math.Vector2()
 
@@ -47,6 +56,14 @@ class Ship(pygame.sprite.Sprite):
         self.time_now = 0
         self.time_ended = 0
         self.score = 0
+
+        self.nuke = False
+        self.nuking = True
+        self.nuke_detonated_time = 0
+        self.icon_flash_time = 0
+        self.icon_flashed = False
+        self.icon_size = 1
+        self.icon_expanding = True
 
     def input(self):
         """ Shoot lasers when space is pressed down """
@@ -80,6 +97,15 @@ class Ship(pygame.sprite.Sprite):
         if keys[pygame.K_RETURN]:
             if not self.started or self.destroyed:
                 self.spawn_self()
+
+        if keys[pygame.K_LCTRL]:
+            if ship.nuke:
+                for meteor in meteor_group:
+                    Laser(laser_group, (0,0), 0, meteor.rect.center)
+                self.nuke = False
+                self.nuking = True
+                self.nuke_detonated_time = self.time_now
+
         if self.direction.length() > 0:
             self.direction.scale_to_length(self.length)
         self.pos += self.force * self.speed * dt
@@ -95,12 +121,19 @@ class Ship(pygame.sprite.Sprite):
         self.started = True
         self.win = False
         self.score = 0
-        self.angle = 0
+        self.angle = 90
         self.offset.xy = 0,0
-        self.direction.xy = 0.001, 0
+        self.direction.xy = 0.000, -0.001
         self.force.xy = 0, 0
         self.pos.x = SCREEN_WIDTH // 2
         self.pos.y = SCREEN_HEIGHT // 2
+        self.nuke = False
+        self.nuking = False
+        self.nuke_detonated_time = self.time_now
+        self.icon_flash_time = 0
+        self.icon_flashed = False
+        self.icon_size = 1
+        self.icon_expanding = True
 
     def check_borders(self):
         """ Crossing the screen boundaries """
@@ -120,14 +153,19 @@ class Ship(pygame.sprite.Sprite):
 
     def meteor_collision(self):
         """ When ship collides with meteors """
-        collision = pygame.sprite.spritecollide(self, meteor_group, True, pygame.sprite.collide_mask)
-        if collision:
-            for col in collision:
-                explosion = Explosion(pygame.time.get_ticks(), col.rect.center)
+        if not ship.destroyed:
+            collision = pygame.sprite.spritecollide(self, meteor_group, True, pygame.sprite.collide_mask)
+            if collision:
+                for col in collision:
+                    explosion = Explosion(pygame.time.get_ticks(), col.rect.center)
+                    explosion_group.append(explosion)
+                explosion = Explosion(pygame.time.get_ticks(), self.rect.center)
                 explosion_group.append(explosion)
-            explosion = Explosion(pygame.time.get_ticks(), self.rect.center)
-            explosion_group.append(explosion)
-            self.destroyed = True
+                meteor_group.empty()
+                laser_group.empty()
+                text.scroll = SCREEN_WIDTH // 2
+                self.destroyed = True
+
 
     def rotate(self):
         """ Rotate ship graphics """
@@ -136,6 +174,41 @@ class Ship(pygame.sprite.Sprite):
         self.image.set_colorkey((0, 0, 0))
         self.mask = pygame.mask.from_surface(self.image)
         self.rect = self.image.get_rect(center=(round(self.pos[0]), round(self.pos[1])))
+
+    def check_nuke(self):
+        if self.nuking and self.time_now - self.nuke_detonated_time > 350:
+            if len(meteor_group) > 0:
+                for meteor in meteor_group:
+                    Laser(laser_group, (0, 0), 0, meteor.rect.center)
+                self.nuke_detonated_time = self.time_now
+            else:
+                laser_group.empty()
+                self.nuking = False
+
+        if not self.nuking and not self.nuke and self.time_now - self.nuke_detonated_time > 40000:
+            self.nuke = True
+            self.icon_flashed = False
+            self.icon_flash_time = self.time_now
+
+        if self.nuke and not self.icon_flashed:
+            if self.time_now - self.icon_flash_time < 1000:
+                if self.icon_expanding:
+                    self.icon_size += 0.05
+                    if self.icon_size > 1.5:
+                        self.icon_expanding = False
+                else:
+                    self.icon_size -= 0.05
+                    if self.icon_size < 1:
+                        self.icon_expanding = True
+            else:
+                self.icon_flashed = True
+
+    def draw_nuke_icon(self):
+        if self.nuke:
+            scaled_surf = pygame.transform.rotozoom(self.nuke_surf, 0, self.icon_size)
+            scaled_surf.set_colorkey((0, 0, 0))
+            self.nuke_rect = scaled_surf.get_rect(center=(40, SCREEN_HEIGHT - 40))
+            screen.blit(scaled_surf, self.nuke_rect)
 
     def update(self):
         """ General updates. Will be run every frame """
@@ -146,16 +219,20 @@ class Ship(pygame.sprite.Sprite):
         self.input()
         self.rotate()
         self.check_borders()
+        self.check_nuke()
 
 
 class Laser(pygame.sprite.Sprite):
     """ Laser class """
-    def __init__(self, group, direction, angle):
+    def __init__(self, group, direction, angle, pos=None):
         super().__init__(group)
-        laser_surf = pygame.surface.Surface((3, 40))
+        laser_surf = pygame.surface.Surface((3, 10))
         laser_surf.fill('chartreuse')
         self.image = pygame.transform.rotozoom(laser_surf, angle - 90, 1)
-        self.rect = self.image.get_rect(center=(round(ship.pos[0]), round(ship.pos[1])))
+        if not pos:
+            self.rect = self.image.get_rect(center=(round(ship.pos[0]), round(ship.pos[1])))
+        else:
+            self.rect = self.image.get_rect(center=pos)
         self.mask = pygame.mask.from_surface(self.image)
 
         self.pos = pygame.math.Vector2(self.rect.center)
@@ -164,18 +241,19 @@ class Laser(pygame.sprite.Sprite):
 
     def meteor_collision(self):
         """ Laser collision with meteors """
-        collided = pygame.sprite.spritecollide(self, meteor_group, pygame.sprite.collide_mask)
-        if collided:
-            for sprite in collided:
-                if sprite.image.get_size()[0] > 115:
-                    Meteor(meteor_group, pos=sprite.rect.center, size=(sprite.image.get_size()[0]//2, sprite.image.get_size()[1]//2))
-                    Meteor(meteor_group, pos=sprite.rect.center, size=(sprite.image.get_size()[0]//2, sprite.image.get_size()[1]//2))
-                elif sprite.image.get_size()[0] > 80:
-                    Meteor(meteor_group, pos=sprite.rect.center, size=(sprite.image.get_size()[0]//2, sprite.image.get_size()[1]//2))
-            ship.score += self.image.get_width()
-            explosion = Explosion(pygame.time.get_ticks(), self.rect.center)
-            explosion_group.append(explosion)
-            self.kill()
+        if not ship.destroyed:
+            collided = pygame.sprite.spritecollide(self, meteor_group, pygame.sprite.collide_mask)
+            if collided:
+                for sprite in collided:
+                    ship.score += 100
+                    if sprite.image.get_size()[0] > 115:
+                        Meteor(meteor_group, pos=sprite.rect.center, size=(sprite.image.get_size()[0]//2, sprite.image.get_size()[1]//2))
+                        Meteor(meteor_group, pos=sprite.rect.center, size=(sprite.image.get_size()[0]//2, sprite.image.get_size()[1]//2))
+                    elif sprite.image.get_size()[0] > 80:
+                        Meteor(meteor_group, pos=sprite.rect.center, size=(sprite.image.get_size()[0]//2, sprite.image.get_size()[1]//2))
+                explosion = Explosion(pygame.time.get_ticks(), self.rect.center)
+                explosion_group.append(explosion)
+                self.kill()
 
     def update(self):
         """ Laser updates. Will be run every frame """
@@ -284,35 +362,99 @@ class Meteor(pygame.sprite.Sprite):
 
 class Text:
     def __init__(self):
-        self.font = pygame.font.SysFont('verdana', 50, True)
+        self.font = pygame.font.SysFont('verdana', 12, False)
+        self.expand = True
+        self.expand_amount = 0.005
+        self.factor = 1
+        self.scroll = SCREEN_WIDTH // 2
+        self.direction = 3
+        self.rotation = -90
+        self.y_letter = pygame.transform.rotozoom(ship.image, -90, 1)
+        self.y_letter_rect = self.y_letter.get_rect(center=(240,55))
+        self.y_letter_pos = self.y_letter_rect.centerx, self.y_letter_rect.centery
 
     def draw(self):
+        draw_stars()
+
+        # animate text
+        if self.expand:
+            self.factor += self.expand_amount
+        else:
+            self.factor -= self.expand_amount
+
+        if self.factor >= 1.5:
+            self.expand = False
+        if self.factor <= 1:
+            self.expand = True
+
+        self.scroll += self.direction
+        if self.scroll >= SCREEN_WIDTH + 300 or self.scroll <= -300:
+            self.direction = -self.direction
+
+        self.rotation += 0.5
+        if self.rotation > 360:
+            self.rotation = 0
+
         if not ship.started:
-            self.font = pygame.font.SysFont('verdana', 100, True)
-            text = f'PYSTEROIDS'
+
+            self.font = pygame.font.SysFont('impact', 20, False)
+            text = f'P   STEROIDS'
             text_surf = self.font.render(text, False, 'chartreuse')
-            text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 150))
+            text_surf = pygame.transform.scale_by(text_surf, 5)
+            text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 2, 50))
             screen.blit(text_surf, text_rect)
-            self.font = pygame.font.SysFont('verdana', 50, True)
-            text = f'press ENTER to play...'
-            text_surf = self.font.render(text, True, 'chartreuse')
-            text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+            screen.blit(self.y_letter, self.y_letter_rect)
+
+            self.font = pygame.font.SysFont('tahoma', 18, True)
+            text = f'press ENTER to play'
+            text_surf = self.font.render(text, False, 'chartreuse')
+            text_surf = pygame.transform.scale_by(text_surf, 1.5 * self.factor)
+            text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 60))
             screen.blit(text_surf, text_rect)
+
+            self.font = pygame.font.SysFont('verdana', 16, True)
+            text = f'© 2022 I.J.'
+            text_surf = self.font.render(text, False, 'chartreuse')
+            text_surf = pygame.transform.scale_by(text_surf, 2)
+            text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 2, 120))
+            screen.blit(text_surf, text_rect)
+
+        elif not ship.destroyed:
+            self.font = pygame.font.SysFont('courier new', 12, False)
+            text = f'{ship.score}'
+            text_surf = self.font.render(text, False, 'chartreuse')
+            text_surf = pygame.transform.scale_by(text_surf, 4)
+            text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 4, 30))
+            screen.blit(text_surf, text_rect)
+
         if debug:
-            text = f'time: {ship.time_now} ships: {len(ship_group)} meteors: {len(meteor_group)} lasers: {len(laser_group)}'
-            text_surf = self.font.render(text, True, 'chartreuse')
+            self.font = pygame.font.SysFont('verdana', 16, True)
+            text = f'direction: [{ship.direction.x:.2f},{ship.direction.y:.2f}] angle: {ship.angle} force: [{ship.force.x:.2f},{ship.force.y:.2f}]'
+            text_surf = self.font.render(text, False, 'white')
+            text_surf = pygame.transform.scale_by(text_surf, 2)
             text_rect = text_surf.get_rect(topleft=(0, 0))
             screen.blit(text_surf, text_rect)
+
         if ship.started and ship.destroyed:
-            self.font = pygame.font.SysFont('verdana', 100, True)
+            self.font = pygame.font.SysFont('impact', 20, False)
             text = 'GAME OVER'
             text_surf = self.font.render(text, False, 'chartreuse')
-            text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 150))
+            text_surf = pygame.transform.scale_by(text_surf, 5)
+            text_rect = text_surf.get_rect(center=(self.scroll, SCREEN_HEIGHT // 2))
             screen.blit(text_surf, text_rect)
-            self.font = pygame.font.SysFont('verdana', 50, True)
-            text = f'press ENTER to play...'
-            text_surf = self.font.render(text, True, 'chartreuse')
-            text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+
+            self.font = pygame.font.SysFont('tahoma', 18, True)
+            text = f'{ship.score} PTS'
+            text_surf = self.font.render(text, False, 'chartreuse')
+            text_surf = pygame.transform.scale_by(text_surf, self.factor * 3)
+            text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 80))
+            screen.blit(text_surf, text_rect)
+
+            self.font = pygame.font.SysFont('tahoma', 18, True)
+            text = f'press ENTER to try again'
+            text_surf = self.font.render(text, False, 'chartreuse')
+            text_surf = pygame.transform.scale_by(text_surf, 2)
+            text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 140))
             screen.blit(text_surf, text_rect)
 
 
@@ -340,6 +482,13 @@ class Explosion:
             del self
 
 
+class Ufo:
+    def __init__(self):
+        pass
+        # TODO:
+        # self.image
+        # self.rect
+
 def shimmering_color(stars=False):
     if not stars:
         color = choice([(127, 255, 0), (118, 238, 0), (102, 205, 0), (69, 139, 0)])
@@ -358,8 +507,11 @@ def draw_stars():
 # inits and general setup
 pygame.init()
 clock = pygame.time.Clock()
-SCREEN_WIDTH, SCREEN_HEIGHT = 1000, 1000
+SCREEN_WIDTH, SCREEN_HEIGHT = 800, 800
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+
+# pixelmode
+pixelmode = True
 
 # show debug information?
 debug = False
@@ -392,16 +544,15 @@ while True:
     screen.fill((0, 0, 0))
     pygame.display.set_caption(f'PySteroids')
     dt = clock.tick(60) / 1000
-    ship.score += 1
+    if not ship.destroyed:
+        ship.score += 1
     # events
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             exit()
         if event.type == meteor_timer:  # Meteor spawns
-            if ship.started:
+            if ship.started and not ship.destroyed:
                 Meteor.spawn()
-            else:
-                meteor_group.empty()
     # sprite group updates
     ship_group.update()
     meteor_group.update()
@@ -416,20 +567,31 @@ while True:
             rect.fill((255, 255, 255))
             screen.blit(rect, sprite.rect)
 
+    # nuke effect
+    if ship.nuking:
+        screen.fill(shimmering_color(stars=True))
+
     # sprite group draws
     if ship.started and not ship.destroyed:
         draw_stars()
         laser_group.draw(screen)
         ship_group.draw(screen)
         meteor_group.draw(screen)
+        ship.draw_nuke_icon()
     text.draw()
 
     # explosions
     for explosion in explosion_group:
         explosion.update()
         if explosion.explosion:
-            screen.fill(shimmering_color())
+            screen.fill('chartreuse')
             explosion.explosion = False
+
+    # indie mode: make it look pixelated by downscaling and upscaling back up
+    if pixelmode:
+        pixelated = pygame.transform.scale_by(screen, 0.25)
+        pixelated = pygame.transform.scale_by(pixelated, 4)
+        screen.blit(pixelated, (0,0))
 
     # final draw
     pygame.display.update()
