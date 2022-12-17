@@ -4,14 +4,13 @@
 #############################################
 
 # TODO:
-# 1. make score text temparily bigger when you hit enemy
-# 2. meteor spawn waves
-# 3. UFO
-# 4. Highscore
+# 1. meteor spawn waves
+# 2. Highscore (save in a file)
+# 3. make UFO shoot at you
 
 import pygame
 import pygame.gfxdraw
-from math import pi
+from math import pi, cos, sin
 from random import randint, uniform, choice
 
 
@@ -28,6 +27,12 @@ class Ship(pygame.sprite.Sprite):
         self.image.set_colorkey((0, 0, 0))
         self.rect = self.image.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
         self.mask = pygame.mask.from_surface(self.image)
+
+        self.shoot_sound = pygame.mixer.Sound('audio/laser4.ogg')
+        self.nuke_ready_sound = pygame.mixer.Sound('audio/sfx_alarm_loop2.wav')
+        self.score_sound = pygame.mixer.Sound('audio/sfx_coin_cluster5.wav')
+        self.start_sound = pygame.mixer.Sound('audio/sfx_menu_select4.wav')
+        self.score_sound_played = False
 
         self.nuke_surf = pygame.surface.Surface((50,50))
         self.nuke_rect = self.nuke_surf.get_rect(center=(20, SCREEN_HEIGHT - 20))
@@ -75,9 +80,12 @@ class Ship(pygame.sprite.Sprite):
 
         self.last_kill = 0
 
+        self.last_ufo = 0
+
     def input(self):
         """ Shoot lasers when space is pressed down """
-        if keys[pygame.K_SPACE] and self.can_shoot:
+        if keys[pygame.K_SPACE] and self.can_shoot and not self.destroyed:
+            self.shoot_sound.play()
             self.can_shoot = False
             self.last_laser_time = self.time_now
             Laser(laser_group, self.direction, self.angle)
@@ -112,6 +120,8 @@ class Ship(pygame.sprite.Sprite):
             if ship.nuke:
                 for meteor in meteor_group:
                     Laser(laser_group, (0,0), 0, meteor.rect.center)
+                for ufo in ufo_group:
+                    Laser(laser_group, (0,0), 0, ufo.rect.center)
                 self.nuke = False
                 self.nuking = True
                 self.nuke_detonated_time = self.time_now
@@ -127,6 +137,7 @@ class Ship(pygame.sprite.Sprite):
         """ Resetting the ship """
         meteor_group.empty()
         laser_group.empty()
+        ufo_group.empty()
         self.destroyed = False
         self.started = True
         self.win = False
@@ -144,6 +155,15 @@ class Ship(pygame.sprite.Sprite):
         self.icon_flashed = False
         self.icon_size = 1
         self.icon_expanding = True
+        self.score_sound_played = False
+        self.start_sound.play()
+        self.last_ufo = self.time_now
+
+    def ufo_timer(self):
+        if not self.destroyed:
+            if self.time_now - self.last_ufo > 20000:
+                Ufo(ufo_group, speed=randint(100,300))
+                self.last_ufo = self.time_now
 
     def check_borders(self):
         """ Crossing the screen boundaries """
@@ -173,9 +193,28 @@ class Ship(pygame.sprite.Sprite):
                 explosion_group.append(explosion)
                 meteor_group.empty()
                 laser_group.empty()
+                for ufo in ufo_group:
+                    ufo.sound.stop()
+                ufo_group.empty()
                 self.destroy_time = self.time_now
                 self.destroyed = True
 
+    def ufo_collision(self):
+        if not ship.destroyed:
+            collisions = pygame.sprite.spritecollide(self, ufo_group, False, pygame.sprite.collide_mask)
+            if collisions:
+                for ufo in collisions:
+                    explosion = Explosion(pygame.time.get_ticks(), ufo.rect.center)
+                    explosion_group.append(explosion)
+                explosion = Explosion(pygame.time.get_ticks(), self.rect.center)
+                explosion_group.append(explosion)
+                meteor_group.empty()
+                laser_group.empty()
+                for ufo in ufo_group:
+                    ufo.sound.stop()
+                ufo_group.empty()
+                self.destroy_time = self.time_now
+                self.destroyed = True
 
     def rotate(self):
         """ Rotate ship graphics """
@@ -186,16 +225,20 @@ class Ship(pygame.sprite.Sprite):
         self.rect = self.image.get_rect(center=(round(self.pos[0]), round(self.pos[1])))
 
     def check_nuke(self):
-        if self.nuking and self.time_now - self.nuke_detonated_time > 350:
-            if len(meteor_group) > 0:
-                for meteor in meteor_group:
-                    Laser(laser_group, (0, 0), 0, meteor.rect.center)
-                self.nuke_detonated_time = self.time_now
-            else:
-                laser_group.empty()
-                self.nuking = False
+        if not self.destroyed:
+            if self.nuking and self.time_now - self.nuke_detonated_time > 350:
+                if len(meteor_group) > 0:
+                    for meteor in meteor_group:
+                        Laser(laser_group, (0, 0), 0, meteor.rect.center)
+                    for ufo in ufo_group:
+                        Laser(laser_group, (0, 0), 0, ufo.rect.center)
+                    self.nuke_detonated_time = self.time_now
+                else:
+                    laser_group.empty()
+                    self.nuking = False
 
         if not self.nuking and not self.nuke and self.time_now - self.nuke_detonated_time > 40000:
+            self.nuke_ready_sound.play()
             self.nuke = True
             self.icon_flashed = False
             self.icon_flash_time = self.time_now
@@ -227,12 +270,14 @@ class Ship(pygame.sprite.Sprite):
         """ General updates. Will be run every frame """
         self.keyboard_input()
         self.meteor_collision()
+        self.ufo_collision()
         self.time_now = pygame.time.get_ticks()
         self.laser_timer()
         self.input()
         self.rotate()
         self.check_borders()
         self.check_nuke()
+        self.ufo_timer()
 
 
 class Laser(pygame.sprite.Sprite):
@@ -269,8 +314,19 @@ class Laser(pygame.sprite.Sprite):
                 explosion_group.append(explosion)
                 self.kill()
 
+    def ufo_collision(self):
+        collided = pygame.sprite.spritecollide(self, ufo_group, pygame.sprite.collide_mask)
+        if collided:
+            for sprite in collided:
+                explosion = Explosion(pygame.time.get_ticks(), self.rect.center)
+                explosion_group.append(explosion)
+                sprite.sound.stop()
+                sprite.kill()
+                self.kill()
+
     def update(self):
         """ Laser updates. Will be run every frame """
+        self.ufo_collision()
         self.meteor_collision()
         self.pos += self.direction * self.speed * dt
         self.rect.center = round(self.pos.x), round(self.pos.y)
@@ -384,7 +440,7 @@ class Text:
         self.direction = 3
         self.rotation = -90
         self.y_letter = pygame.transform.rotozoom(ship.image, -90, 1)
-        self.y_letter_rect = self.y_letter.get_rect(center=(237,SCREEN_HEIGHT // 2))
+        self.y_letter_rect = self.y_letter.get_rect(center=(237,SCREEN_HEIGHT // 2 + 10))
         self.y_letter_pos = self.y_letter_rect.centerx, self.y_letter_rect.centery
 
     def draw(self):
@@ -412,7 +468,7 @@ class Text:
         if not ship.started:
 
             self.font = pygame.font.SysFont('impact', 20, False)
-            text = f'P   STEROIDS'
+            text = f'p   STEROIDS'
             text_surf = self.font.render(text, False, 'chartreuse')
             text_surf = pygame.transform.scale_by(text_surf, 5)
             text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
@@ -426,17 +482,10 @@ class Text:
             text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 60))
             screen.blit(text_surf, text_rect)
 
-            # self.font = pygame.font.SysFont('verdana', 16, True)
-            # text = f'© 2022 ilkka jussila'
-            # text_surf = self.font.render(text, False, 'chartreuse')
-            # text_surf = pygame.transform.scale_by(text_surf, 2)
-            # text_rect = text_surf.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 120))
-            # screen.blit(text_surf, text_rect)
-
         elif not ship.destroyed:
             text = f'{ship.score}'
-            if ship.time_now - ship.last_kill < 250:
-                self.font = pygame.font.SysFont('courier new', 12, False, True)
+            if ship.time_now - ship.last_kill < 150:
+                self.font = pygame.font.SysFont('tahoma', 16, True)
                 text_surf = self.font.render(text, False, 'white')
                 text_surf = pygame.transform.scale_by(text_surf, 4 * 1.5)
             else:
@@ -463,6 +512,9 @@ class Text:
             screen.blit(text_surf, text_rect)
 
             if ship.time_now - ship.destroy_time > 1000:
+                if not ship.score_sound_played:
+                    ship.score_sound.play()
+                    ship.score_sound_played = True
                 self.font = pygame.font.SysFont('tahoma', 18, True)
                 text = f'{ship.score} PTS'
                 text_surf = self.font.render(text, False, 'white')
@@ -484,6 +536,8 @@ class Explosion:
         self.time = time
         self.particles = []
         self.explosion = True
+        self.explosion_sound = pygame.mixer.Sound('audio/explosion4.ogg')
+        self.explosion_sound.play()
 
     def update(self):
         self.particles.clear()
@@ -491,9 +545,6 @@ class Explosion:
             self.particles.append((randint(-60, 60), randint(-60, 60), randint(20,80)))     # x,y, size
         if pygame.time.get_ticks() - self.time < 200:
             for particle in self.particles:
-                # rect = pygame.rect.Rect((self.pos[0] + particle[0], self.pos[1] + particle[1]), (80, 80))
-                # pygame.draw.ellipse(screen, shimmering_color(), rect)
-
                 pygame.gfxdraw.filled_circle(screen, round(self.pos[0] + particle[0]), round(self.pos[1] + particle[1]),
                                              particle[2], (255, 255, 255))
 
@@ -502,12 +553,49 @@ class Explosion:
             del self
 
 
-class Ufo:
-    def __init__(self):
-        pass
-        # TODO:
-        # self.image
-        # self.rect
+class Ufo(pygame.sprite.Sprite):
+    def __init__(self, groups, speed=None):
+        super().__init__(groups)
+        self.image = pygame.surface.Surface((100,50))
+        if speed:
+            self.speed = speed
+        else:
+            self.speed = 100
+        self.sound = pygame.mixer.Sound('audio/sfx_vehicle_plainloop.wav')
+
+        pygame.gfxdraw.filled_circle(self.image,50,25,15, (127, 255, 0))
+        pygame.gfxdraw.filled_polygon(self.image, [(0, 37), (25, 25), (75, 25), (100, 37)], (127, 255, 0))
+        pygame.gfxdraw.filled_polygon(self.image,[(0,37),(25,50),(37,75),(100,37)],(127, 255, 0))
+
+        spawn_direction = choice(['up','down','left','right'])
+        if spawn_direction == 'up':
+            random_x_pos = randint(-100, SCREEN_HEIGHT + 100)
+            random_y_pos = -100
+        if spawn_direction == 'down':
+            random_x_pos = randint(-100, SCREEN_HEIGHT + 100)
+            random_y_pos = SCREEN_HEIGHT + 100
+        if spawn_direction == 'left':
+            random_x_pos = -100
+            random_y_pos = randint(-100, SCREEN_WIDTH + 100)
+        if spawn_direction == 'right':
+            random_x_pos = SCREEN_WIDTH + 100
+            random_y_pos = randint(-100, SCREEN_WIDTH + 100)
+        self.image.set_colorkey((0,0,0))
+        self.rect = self.image.get_rect(center=(random_x_pos, random_y_pos))
+        self.mask = pygame.mask.from_surface(self.image)
+        self.pos = pygame.math.Vector2(self.rect.center)
+
+        self.last_laser_shot = 0
+        self.sound.play(-1)
+
+    def move_towards_player(self):
+        if ship.time_now - self.last_laser_shot > 400:
+            self.pos = self.pos.move_towards(ship.pos,self.speed * dt)
+            self.rect.center = round(self.pos.x), round(self.pos.y)
+
+    def update(self):
+        self.move_towards_player()
+
 
 def shimmering_color(stars=False):
     if not stars:
@@ -529,6 +617,8 @@ pygame.init()
 clock = pygame.time.Clock()
 SCREEN_WIDTH, SCREEN_HEIGHT = 800, 800
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.mixer_music.load('audio/Pixel River.ogg')
+pygame.mixer_music.play(-1,0,5000)
 
 # pixelmode
 pixelmode = True
@@ -540,6 +630,7 @@ debug = False
 ship_group = pygame.sprite.GroupSingle()
 meteor_group = pygame.sprite.Group()
 laser_group = pygame.sprite.Group()
+ufo_group = pygame.sprite.Group()
 
 explosion_group = []
 
@@ -573,10 +664,12 @@ while True:
         if event.type == meteor_timer:  # Meteor spawns
             if ship.started and not ship.destroyed:
                 Meteor.spawn()
+
     # sprite group updates
     ship_group.update()
     meteor_group.update()
     laser_group.update()
+    ufo_group.update()
 
     if debug:
         rect = pygame.surface.Surface(ship.rect.size)
@@ -598,6 +691,7 @@ while True:
         ship_group.draw(screen)
         meteor_group.draw(screen)
         ship.draw_nuke_icon()
+        ufo_group.draw(screen)
     text.draw()
 
     # explosions
@@ -612,7 +706,6 @@ while True:
         pixelated = pygame.transform.scale_by(screen, 0.25)
         pixelated = pygame.transform.scale_by(pixelated, 4)
         screen.blit(pixelated, (0,0))
-
 
     # final draw
     pygame.display.update()
